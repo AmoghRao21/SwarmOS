@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # Database (Postgres)
+  db:
+    image: postgres:15-alpine
+    container_name: swarm_db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: swarm_db
+    ports:
+      - "5432:5432"
+    networks:
+      - swarm_net
+
+  # Backend (Python API)
+  api:
+    build: ./backend
+    container_name: swarm_api
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@db:5432/swarm_db
+      OPENAI_API_KEY: sk-placeholder-key
+    networks:
+      - swarm_net
+
+  # Frontend (Next.js)
+  web:
+    build: ./frontend
+    container_name: swarm_web
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      WATCHPACK_POLLING: "true"
+    networks:
+      - swarm_net
+
+networks:
+  swarm_net:
+    driver: bridge
