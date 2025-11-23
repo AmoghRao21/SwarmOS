@@ -1,49 +1,97 @@
-version: '3.8'
-
 services:
-  # Database (Postgres)
-  db:
-    image: postgres:15-alpine
+  postgres:
+    image: postgres:16-alpine
     container_name: swarm_db
+    restart: always
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: swarm_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     networks:
-      - swarm_net
+      - swarm_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  # Backend (Python API)
-  api:
-    build: ./backend
+  redis:
+    image: redis:7-alpine
+    container_name: swarm_cache
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - swarm_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 50
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: swarm_ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - swarm_network
+    tty: true 
+    restart: always
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: swarm_api
     volumes:
       - ./backend:/app
     ports:
       - "8000:8000"
-    depends_on:
-      - db
+    # 👇 LOAD ENV FILE EXPLICITLY
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://user:password@db:5432/swarm_db
-      OPENAI_API_KEY: sk-placeholder-key
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      # We let env_file handle the rest, but we can force these:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=llama-3.3-70b-versatile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
-      - swarm_net
-
-  # Frontend (Next.js)
-  web:
-    build: ./frontend
-    container_name: swarm_web
+      - swarm_network
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: swarm_ui
+    restart: always
     ports:
       - "3000:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      WATCHPACK_POLLING: "true"
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    depends_on:
+      - backend
     networks:
-      - swarm_net
+      - swarm_network
+
+volumes:
+  postgres_data:
+  ollama_data: 
 
 networks:
-  swarm_net:
+  swarm_network:
     driver: bridge
