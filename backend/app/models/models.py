@@ -11,7 +11,6 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String, nullable=True)
     
-    # A user has many workflows
     workflows: Mapped[list["Workflow"]] = relationship(back_populates="owner")
 
 class Workflow(Base):
@@ -31,5 +30,9 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String)
     assigned_agent: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="queued")
+    
+    # NEW FIELDS
+    input_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    output_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     
     workflow: Mapped["Workflow"] = relationship(back_populates="tasks")

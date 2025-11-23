@@ -1,20 +1,20 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.core.database import engine, Base
-# Import models so the database knows they exist
-from app.models import models
+from app.api import routes  
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("🚀 Starting SwarmOS Brain...")
-    # This creates the tables in the database
+    print("🚀 Starting SwarmOS...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("✅ Database Tables Created!")
     yield
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, title="SwarmOS Brain")
+
+
+app.include_router(routes.router, prefix="/api/v1")
 
 @app.get("/")
 def read_root():
-    return {"status": "SwarmOS Database Connected 🔗"}
+    return {"status": "SwarmOS Online 🟢"}
