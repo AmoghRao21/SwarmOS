@@ -8,21 +8,18 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
 
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
-    POSTGRES_DB: str
-    DATABASE_URL: str
+    POSTGRES_USER: str = "swarm_admin"
+    POSTGRES_PASSWORD: str = "swarm_secure_password"
+    POSTGRES_DB: str = "swarm_core"
+    DATABASE_URL: str = "" # Will be populated by environment variables
 
-    REDIS_URL: str
+    REDIS_URL: str = "redis://redis:6379/0"
     
-    OPENAI_API_KEY: str = "not-needed"
-    OLLAMA_BASE_URL: str = "http://ollama:11434"
-    
-    # --- CHANGED TO QWEN ---
-    # qwen2.5-coder:7b is the best balance of speed vs smarts for local dev
-    OLLAMA_MODEL: str = "qwen2.5-coder:7b" 
+    # --- BRAIN CONFIGURATION ---
+    GROQ_API_KEY: str = "" # Must be set in .env
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: list[str] = ["*"]
 
 @lru_cache
 def get_settings() -> Settings:
