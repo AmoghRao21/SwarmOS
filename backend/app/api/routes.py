@@ -1,14 +1,39 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from uuid import UUID
+from langchain_core.messages import HumanMessage
 
 from app.core.database import get_db
 from app.models import models
 from app.schemas import schemas
+from app.agents.graph import app as agent_graph
 
 router = APIRouter()
+
+async def run_agent_workflow(task_id: UUID, db_session_factory):
+    async with db_session_factory() as db:
+        result = await db.execute(select(models.Task).where(models.Task.id == task_id))
+        task = result.scalars().first()
+        if not task:
+            return
+
+        task.status = "running"
+        await db.commit()
+
+        initial_state = {
+            "messages": [HumanMessage(content=task.input_payload.get("prompt", ""))],
+            "task_id": str(task_id),
+            "next": "Supervisor"
+        }
+        
+        final_state = await agent_graph.ainvoke(initial_state)
+        
+        last_message = final_state["messages"][-1].content
+        task.output_payload = {"result": last_message}
+        task.status = "completed"
+        await db.commit()
 
 @router.post("/users/", response_model=dict)
 async def create_user(email: str, db: AsyncSession = Depends(get_db)):
@@ -27,19 +52,14 @@ async def create_user(email: str, db: AsyncSession = Depends(get_db)):
 async def create_workflow(
     workflow_in: schemas.WorkflowCreate, 
     user_id: UUID, 
-    db: AsyncSession = Depends(get_db)
+    background_tasks: BackgroundTasks, 
+    db: AsyncSession = Depends(get_db),
 ):
-    # 1. Create Workflow
-    workflow = models.Workflow(
-        title=workflow_in.title,
-        user_id=user_id,
-        status="pending"
-    )
+    workflow = models.Workflow(title=workflow_in.title, user_id=user_id, status="pending")
     db.add(workflow)
     await db.commit()
     await db.refresh(workflow)
 
-    # 2. Create Initial Task
     task = models.Task(
         workflow_id=workflow.id,
         title="Initial Request",
@@ -50,31 +70,20 @@ async def create_workflow(
     db.add(task)
     await db.commit()
     
-    # --- FIX START ---
-    # We must re-fetch the workflow with "selectinload" to get the tasks.
-    # Otherwise, Pydantic triggers a lazy-load error (MissingGreenlet).
-    query = (
-        select(models.Workflow)
-        .where(models.Workflow.id == workflow.id)
-        .options(selectinload(models.Workflow.tasks))
-    )
+    from app.core.database import AsyncSessionLocal
+    background_tasks.add_task(run_agent_workflow, task.id, AsyncSessionLocal)
+    
+    query = select(models.Workflow).where(models.Workflow.id == workflow.id).options(selectinload(models.Workflow.tasks))
     result = await db.execute(query)
     refreshed_workflow = result.scalars().first()
-    # --- FIX END ---
     
     return refreshed_workflow
 
 @router.get("/workflows/{workflow_id}", response_model=schemas.WorkflowResponse)
 async def read_workflow(workflow_id: UUID, db: AsyncSession = Depends(get_db)):
-    query = (
-        select(models.Workflow)
-        .where(models.Workflow.id == workflow_id)
-        .options(selectinload(models.Workflow.tasks))
-    )
+    query = select(models.Workflow).where(models.Workflow.id == workflow_id).options(selectinload(models.Workflow.tasks))
     result = await db.execute(query)
     workflow = result.scalars().first()
-    
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
-        
     return workflow
